@@ -20,17 +20,21 @@ rest_duration_sec = 2.0
 typing_timeout_sec = 8.0
 
 [trials]
-# Small counts for a quick, testable demo (docx asked for 5-10 / condition).
-trials_per_condition = 8
+# Full session: 140 main trials total, split as evenly as possible across the
+# three conditions (46/47/47) since 140 isn't a multiple of 3.
+total_trials = 140
 practice_trials_per_condition = 1
 sequence_length = 4
 # CONDITION 2 (one_per_finger) draws from this curated, hand-picked pool of
-# orderings (repeats once trials_per_condition > 5). CONDITION 3 (randomized)
-# instead draws from the full 24-permutation space of F/D/J/K -- see
-# src/typing_task/trials.py for why the two are generated differently even
-# though both use "all four characters, no repeats" sequences.
+# orderings (repeats once a condition's trial count exceeds 5). CONDITION 3
+# (randomized) instead draws from the full 24-permutation space of F/D/J/K --
+# see src/typing_task/trials.py for why the two are generated differently
+# even though both use "all four characters, no repeats" sequences.
 one_per_finger_pool = ["FDJK", "KJDF", "FJDK", "DFKJ", "JKFD"]
 shuffle = true
+# Self-paced rest break after every 35 main trials (i.e. after trials
+# 35/70/105 of 140) -- not after the final trial, since the session just ends.
+break_every_n_trials = 35
 
 [keys]
 characters = ["F", "D", "J", "K"]

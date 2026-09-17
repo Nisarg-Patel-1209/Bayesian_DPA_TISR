@@ -16,6 +16,7 @@ string (no parsing needed downstream):
     KEY_F / KEY_D / KEY_J / KEY_K   (one per accepted keypress)
     TYPING_COMPLETE
     REST_ONSET
+    BREAK_ONSET / BREAK_END         (self-paced rest break every N trials)
 
 Trial boundaries additionally carry the trial index/condition/sequence so the
 marker stream alone (even without the CSV) is enough to identify each trial:
@@ -34,6 +35,8 @@ PREPARATION_ONSET = "PREPARATION_ONSET"
 GO_ONSET = "GO_ONSET"
 TYPING_COMPLETE = "TYPING_COMPLETE"
 REST_ONSET = "REST_ONSET"
+BREAK_ONSET = "BREAK_ONSET"
+BREAK_END = "BREAK_END"
 
 
 class MarkerSender(Protocol):

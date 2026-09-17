@@ -21,6 +21,8 @@ from typing import Any
 from .config import TypingTaskConfig
 from .trials import ONE_PER_FINGER, RANDOMIZED, Trial, build_trial_plan
 from .triggers import (
+    BREAK_END,
+    BREAK_ONSET,
     FIXATION_ONSET,
     GO_ONSET,
     PREPARATION_ONSET,
@@ -108,8 +110,9 @@ def run_task(cfg: TypingTaskConfig, practice_only: bool = False) -> dict[str, Pa
 
         quit_requested = False
         if practice_trials:
+            # Practice is short (per-condition, not the full session) -- no breaks needed.
             practice_rows, quit_requested = run_block(
-                win, fixation, sequence_stim, prepare_stim, go_stim, markers, cfg, practice_trials
+                win, fixation, sequence_stim, prepare_stim, go_stim, message_stim, markers, cfg, practice_trials
             )
             output_paths["practice"] = write_rows(
                 make_output_path(cfg, suffix="practice"), practice_rows, cfg.trials.sequence_length
@@ -121,7 +124,16 @@ def run_task(cfg: TypingTaskConfig, practice_only: bool = False) -> dict[str, Pa
 
         if not quit_requested:
             main_rows, _ = run_block(
-                win, fixation, sequence_stim, prepare_stim, go_stim, markers, cfg, main_trials
+                win,
+                fixation,
+                sequence_stim,
+                prepare_stim,
+                go_stim,
+                message_stim,
+                markers,
+                cfg,
+                main_trials,
+                break_every_n_trials=cfg.trials.break_every_n_trials,
             )
             output_paths["main"] = write_rows(
                 make_output_path(cfg, suffix="main"), main_rows, cfg.trials.sequence_length
@@ -140,20 +152,48 @@ def run_block(
     sequence_stim: Any,
     prepare_stim: Any,
     go_stim: Any,
+    message_stim: Any,
     markers: Any,
     cfg: TypingTaskConfig,
     trials: list[Trial],
+    break_every_n_trials: int | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Run every trial in order; stop early (without dropping the row already
     collected) if the participant presses the quit key. Returns
-    ``(rows, quit_requested)``."""
+    ``(rows, quit_requested)``.
+
+    If ``break_every_n_trials`` is set, a self-paced break screen is shown
+    after every that-many completed trials (but never after the last trial,
+    since the block is simply over at that point)."""
+    total = len(trials)
     rows: list[dict[str, Any]] = []
     for trial in trials:
         row = run_trial(win, fixation, sequence_stim, prepare_stim, go_stim, markers, cfg, trial)
         rows.append(row)
         if row["quit"]:
             return rows, True
+        if (
+            break_every_n_trials
+            and trial.trial_index % break_every_n_trials == 0
+            and trial.trial_index < total
+        ):
+            show_break(win, message_stim, markers, trial.trial_index, total)
     return rows, False
+
+
+def show_break(win: Any, message_stim: Any, markers: Any, completed: int, total: int) -> None:
+    from psychopy import event
+
+    markers.send(BREAK_ONSET)
+    text = (
+        f"Break\n\n{completed} / {total} trials complete.\n\n"
+        "Relax for a bit.\nPress any key when you are ready to continue."
+    )
+    message_stim.text = text
+    message_stim.draw()
+    win.flip()
+    event.waitKeys()
+    markers.send(BREAK_END)
 
 
 def run_trial(
@@ -406,6 +446,10 @@ def dry_run(cfg: TypingTaskConfig, max_preview: int = 12) -> tuple[list[Trial], 
     print(f"Practice trials: {len(practice_trials)}   Main trials: {len(main_trials)}")
     counts = Counter(t.condition for t in main_trials)
     print(f"Main condition counts: {dict(counts)}")
+    if cfg.trials.break_every_n_trials:
+        n = cfg.trials.break_every_n_trials
+        break_points = list(range(n, len(main_trials), n))
+        print(f"Rest breaks after trials: {break_points}")
     char_counts = Counter(ch for t in main_trials for ch in t.sequence)
     print(f"Main character counts: {dict(char_counts)}")
     duplicates = _find_unexpected_duplicate_sequences(main_trials, cfg.trials)

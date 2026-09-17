@@ -53,14 +53,49 @@ def build_trial_plan(
     rng: random.Random,
 ) -> tuple[list[Trial], list[Trial]]:
     """Return ``(practice_trials, main_trials)``, each already order-randomized
-    (interleaved across conditions, per the paradigm's randomization request)."""
+    (interleaved across conditions, per the paradigm's randomization request).
+
+    The main block's ``total_trials`` need not be divisible by 3 (e.g. a
+    140-trial session): counts are split across the three conditions as
+    evenly as possible (46/47/47), with ``rng`` deciding which condition(s)
+    absorb the remainder so the choice is still seed-reproducible."""
     practice = _build_block(
-        characters, trial_cfg, rng, block=PRACTICE, n_per_condition=trial_cfg.practice_trials_per_condition
+        characters,
+        trial_cfg,
+        rng,
+        block=PRACTICE,
+        condition_counts=dict.fromkeys(CONDITIONS, trial_cfg.practice_trials_per_condition),
     )
-    main = _build_block(
-        characters, trial_cfg, rng, block=MAIN, n_per_condition=trial_cfg.trials_per_condition
-    )
+    main_counts = resolve_main_condition_counts(trial_cfg.total_trials, trial_cfg.sequence_length, rng)
+    main = _build_block(characters, trial_cfg, rng, block=MAIN, condition_counts=main_counts)
     return practice, main
+
+
+def resolve_main_condition_counts(
+    total_trials: int, sequence_length: int, rng: random.Random
+) -> dict[str, int]:
+    """Split ``total_trials`` across the three conditions, biased to keep
+    character frequency balanced even when ``total_trials`` isn't a multiple
+    of 3.
+
+    one_per_finger / randomized trials each contribute exactly one of every
+    character regardless of how many trials they get, so any split between
+    them is character-neutral. same_finger trials contribute
+    ``sequence_length`` copies of a single character per trial, so its count
+    is snapped to the nearest multiple of ``sequence_length`` (e.g. 48, not
+    46, out of 140) -- that alone gets full character balance from
+    same_finger, and the remaining trials split evenly between the other two.
+    """
+    ideal = total_trials / 3
+    nearest_multiple = round(ideal / sequence_length) * sequence_length
+    same_finger_n = min(max(nearest_multiple, 0), total_trials)
+
+    remaining = total_trials - same_finger_n
+    one_per_finger_n, randomized_n = split_evenly(remaining, 2, rng)
+    if rng.random() < 0.5:  # avoid systematically favouring one condition with the odd trial
+        one_per_finger_n, randomized_n = randomized_n, one_per_finger_n
+
+    return {SAME_FINGER: same_finger_n, ONE_PER_FINGER: one_per_finger_n, RANDOMIZED: randomized_n}
 
 
 def _build_block(
@@ -68,16 +103,18 @@ def _build_block(
     trial_cfg: TrialConfig,
     rng: random.Random,
     block: str,
-    n_per_condition: int,
+    condition_counts: dict[str, int],
 ) -> list[Trial]:
-    if n_per_condition <= 0:
+    if all(n <= 0 for n in condition_counts.values()):
         return []
 
-    same_finger_seqs = generate_same_finger_sequences(characters, n_per_condition, trial_cfg.sequence_length, rng)
-    one_per_finger_seqs = generate_pool_sequences(
-        parse_pool(trial_cfg.one_per_finger_pool, characters), n_per_condition, rng
+    same_finger_seqs = generate_same_finger_sequences(
+        characters, condition_counts[SAME_FINGER], trial_cfg.sequence_length, rng
     )
-    randomized_seqs = generate_randomized_sequences(characters, n_per_condition, rng)
+    one_per_finger_seqs = generate_pool_sequences(
+        parse_pool(trial_cfg.one_per_finger_pool, characters), condition_counts[ONE_PER_FINGER], rng
+    )
+    randomized_seqs = generate_randomized_sequences(characters, condition_counts[RANDOMIZED], rng)
 
     planned: list[tuple[str, tuple[str, ...]]] = (
         [(SAME_FINGER, seq) for seq in same_finger_seqs]
@@ -92,6 +129,20 @@ def _build_block(
         Trial(trial_index=idx, block=block, condition=condition, sequence=seq)
         for idx, (condition, seq) in enumerate(planned, start=1)
     ]
+
+
+def split_evenly(total: int, k: int, rng: random.Random) -> list[int]:
+    """Split ``total`` into ``k`` non-negative counts as evenly as possible;
+    any remainder is handed to a random subset of ``k`` (reproducible via
+    ``rng``) so no one condition is systematically favoured across studies
+    that don't divide evenly by ``k`` (e.g. 140 trials / 3 conditions)."""
+    if total < 0:
+        raise ValueError("total must be non-negative.")
+    base, remainder = divmod(total, k)
+    counts = [base] * k
+    for i in rng.sample(range(k), remainder):
+        counts[i] += 1
+    return counts
 
 
 def generate_same_finger_sequences(

@@ -39,13 +39,19 @@ class TimingConfig:
 
 @dataclass(frozen=True)
 class TrialConfig:
-    trials_per_condition: int
+    # Total trials in the main block, split as evenly as possible across the
+    # three conditions (need not be a multiple of 3).
+    total_trials: int
     practice_trials_per_condition: int
     sequence_length: int
     # Curated example sequences for the one-letter-per-finger condition
     # (each uses all four characters exactly once, in a fixed hand-picked order).
     one_per_finger_pool: tuple[str, ...]
     shuffle: bool
+    # A break screen is inserted after every this-many main-block trials
+    # (e.g. 35 -> breaks after trials 35/70/105 of a 140-trial session).
+    # 0 or None disables breaks.
+    break_every_n_trials: int | None = None
 
 
 @dataclass(frozen=True)

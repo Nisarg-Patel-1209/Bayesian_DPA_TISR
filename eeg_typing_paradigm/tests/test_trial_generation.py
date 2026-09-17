@@ -21,6 +21,8 @@ from typing_task.trials import (
     generate_randomized_sequences,
     generate_same_finger_sequences,
     parse_pool,
+    resolve_main_condition_counts,
+    split_evenly,
 )
 
 CHARACTERS = ("F", "D", "J", "K")
@@ -31,7 +33,25 @@ class ConfigTests(unittest.TestCase):
         cfg = load_config(ROOT / "config" / "demo.toml")
         self.assertEqual(cfg.keys.characters, CHARACTERS)
         self.assertEqual(cfg.trials.sequence_length, 4)
-        self.assertGreater(cfg.trials.trials_per_condition, 0)
+        self.assertEqual(cfg.trials.total_trials, 140)
+        self.assertEqual(cfg.trials.break_every_n_trials, 35)
+
+
+class SplitEvenlyTests(unittest.TestCase):
+    def test_evenly_divisible_total_is_exact(self) -> None:
+        rng = random.Random(0)
+        self.assertEqual(sorted(split_evenly(9, 3, rng)), [3, 3, 3])
+
+    def test_remainder_distributed_as_single_extra_each(self) -> None:
+        rng = random.Random(0)
+        counts = split_evenly(140, 3, rng)
+        self.assertEqual(sum(counts), 140)
+        self.assertEqual(sorted(counts), [46, 47, 47])
+
+    def test_reproducible_with_same_seed(self) -> None:
+        counts_a = split_evenly(140, 3, random.Random(7))
+        counts_b = split_evenly(140, 3, random.Random(7))
+        self.assertEqual(counts_a, counts_b)
 
 
 class BalancedChoicesTests(unittest.TestCase):
@@ -113,10 +133,14 @@ class TrialPlanTests(unittest.TestCase):
     def test_condition_counts_match_config(self) -> None:
         rng = random.Random(self.cfg.experiment.random_seed)
         practice, main = build_trial_plan(self.cfg.keys.characters, self.cfg.trials, rng)
-        n = self.cfg.trials.trials_per_condition
-        self.assertEqual(len(main), n * 3)
+        self.assertEqual(len(main), self.cfg.trials.total_trials)
         counts = Counter(t.condition for t in main)
-        self.assertEqual(counts, Counter({SAME_FINGER: n, ONE_PER_FINGER: n, RANDOMIZED: n}))
+        self.assertEqual(sum(counts.values()), self.cfg.trials.total_trials)
+        # 140 isn't a multiple of 3, and same_finger's count is snapped to a
+        # multiple of sequence_length (4) for perfect character balance, so
+        # conditions land at 48/46/46 rather than an even 3-way split -- still
+        # within a couple of trials of each other.
+        self.assertLessEqual(max(counts.values()) - min(counts.values()), self.cfg.trials.sequence_length)
 
     def test_condition_order_is_interleaved_not_blocked(self) -> None:
         rng = random.Random(self.cfg.experiment.random_seed)
@@ -124,7 +148,16 @@ class TrialPlanTests(unittest.TestCase):
         condition_sequence = [t.condition for t in main]
         self.assertGreater(len(set(condition_sequence)), 1)
         # A fully blocked order would put every same_finger trial first.
-        self.assertNotEqual(condition_sequence[: self.cfg.trials.trials_per_condition], [SAME_FINGER] * self.cfg.trials.trials_per_condition)
+        first_n = condition_sequence[: self.cfg.trials.break_every_n_trials]
+        self.assertNotEqual(first_n, [SAME_FINGER] * len(first_n))
+
+    def test_total_trials_matches_140_with_break_every_35(self) -> None:
+        rng = random.Random(self.cfg.experiment.random_seed)
+        _, main = build_trial_plan(self.cfg.keys.characters, self.cfg.trials, rng)
+        self.assertEqual(len(main), 140)
+        self.assertEqual(self.cfg.trials.break_every_n_trials, 35)
+        break_points = list(range(35, len(main), 35))
+        self.assertEqual(break_points, [35, 70, 105])  # not after trial 140 -- session just ends
 
     def test_trial_indices_are_contiguous(self) -> None:
         rng = random.Random(self.cfg.experiment.random_seed)
@@ -139,11 +172,28 @@ class TrialPlanTests(unittest.TestCase):
         self.assertEqual([t.sequence for t in main_a], [t.sequence for t in main_b])
 
     def test_character_frequency_is_balanced_across_whole_run(self) -> None:
+        # one_per_finger/randomized trials contribute one of every character
+        # regardless of trial count, and same_finger's count is snapped to a
+        # multiple of sequence_length (see resolve_main_condition_counts), so
+        # with total_trials=140 this comes out perfectly even (140 each).
         rng = random.Random(self.cfg.experiment.random_seed)
         _, main = build_trial_plan(self.cfg.keys.characters, self.cfg.trials, rng)
         char_counts = Counter(ch for t in main for ch in t.sequence)
         counts = list(char_counts.values())
-        self.assertLessEqual(max(counts) - min(counts), 1)
+        self.assertLessEqual(max(counts) - min(counts), self.cfg.trials.sequence_length)
+
+
+class ResolveMainConditionCountsTests(unittest.TestCase):
+    def test_140_trials_snaps_same_finger_to_multiple_of_four(self) -> None:
+        rng = random.Random(42)
+        counts = resolve_main_condition_counts(140, 4, rng)
+        self.assertEqual(sum(counts.values()), 140)
+        self.assertEqual(counts[SAME_FINGER] % 4, 0)
+
+    def test_evenly_divisible_total_stays_exact_thirds(self) -> None:
+        rng = random.Random(0)
+        counts = resolve_main_condition_counts(96, 4, rng)  # 96 = 3 * 32, 32 % 4 == 0
+        self.assertEqual(counts, {SAME_FINGER: 32, ONE_PER_FINGER: 32, RANDOMIZED: 32})
 
 
 class CsvSchemaTests(unittest.TestCase):

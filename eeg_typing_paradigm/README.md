@@ -13,8 +13,11 @@ about a planned typing sequence is represented in the EEG **before** and
 
 This is a **pilot/demo**, not the final experiment: the goal is to check that
 the trial structure, instructions, and timings are practical and comfortable
-to run while recording EEG, with a small number of trials (default 8 per
-condition, ~24 total + 3 practice).
+to run while recording EEG. The default profile is a full 140-trial session
+(split ~48/46/46 across the three conditions, see below) plus 3 practice
+trials, with a self-paced rest break after every 35 main trials (after
+trials 35/70/105) so the participant can relax; all of these numbers are set
+in `config/demo.toml` and easy to shrink back down for a quicker test run.
 
 Built with the same architecture as the `Flanker_EEG_RL` project supplied
 alongside this one (TOML-config dataclasses, a lazily-imported PsychoPy
@@ -77,6 +80,28 @@ Every trial, regardless of condition, follows the same six phases:
 All six durations, plus trial counts, the participant ID, and the random
 seed, are set in `config/demo.toml` — nothing is hard-coded in the script.
 
+### Rest breaks
+
+Every `break_every_n_trials` completed main trials (default 35, giving 3
+breaks across a 140-trial session — after trials 35, 70, 105, but not after
+the last trial, since the session simply ends there), a self-paced break
+screen is shown:
+
+```
+Break
+
+35 / 140 trials complete.
+
+Relax for a bit.
+Press any key when you are ready to continue.
+```
+
+There's no imposed minimum or maximum break length — the participant
+continues whenever they press a key. `BREAK_ONSET` / `BREAK_END` markers
+bracket the break so it's easy to exclude from EEG analysis (or to look at
+separately, e.g. for a post-break warm-up effect on the first few trials).
+Practice trials don't include breaks (there are only a few of them).
+
 ### The three conditions
 
 1. **`same_finger`** — `F F F F`, `D D D D`, `J J J J`, `K K K K`. Same
@@ -93,15 +118,26 @@ small hand-picked list vs. the complete permutation space) even though both
 satisfy "each finger once, order varies" — see the docstring in
 `src/typing_task/trials.py`. If you don't need that distinction, set
 `one_per_finger_pool` to more entries, or treat both as one condition in
-analysis.
+analysis. Note that at the full 140-trial session size, each condition gets
+~46-48 trials — more than either pool (5 curated orders, or 24 permutations),
+so sequences necessarily repeat in both conditions; the sampler still
+guarantees no sequence is *immediately* repeated back-to-back within a
+condition (see `generate_pool_sequences`), it just can no longer guarantee
+zero repeats across the whole session the way the original ≤10-trial demo
+profile could.
 
-Trial order is randomized and interleaved across all three conditions (not
-blocked), with a fixed `random_seed` so a run is exactly reproducible, and
-condition/character counts are balanced automatically:
-`one_per_finger`/`randomized` sequences use every character once by
-construction; `same_finger` trials are assigned round-robin across F/D/J/K.
-The realized order is itself saved in the CSV (`trial_index` + `sequence`
-column), so no separate trial-plan file is needed to reconstruct it.
+`total_trials` (140 by default) is split across the three conditions as
+evenly as possible, with one adjustment: since `same_finger` trials
+contribute `sequence_length` (4) copies of one character each, its count is
+snapped to the nearest multiple of 4 (48, not the "even" 46-47) so that
+character frequency comes out perfectly balanced overall (140 F / D / J / K
+each, out of 560 total keypresses) rather than merely close. The other two
+conditions split the remainder (46/46) since they contribute one of every
+character per trial regardless of their own trial count. Trial order is then
+randomized and interleaved across all three conditions (not blocked), with a
+fixed `random_seed` so a run is exactly reproducible. The realized order is
+itself saved in the CSV (`trial_index` + `sequence` column), so no separate
+trial-plan file is needed to reconstruct it.
 
 ### Handling incorrect keypresses
 
@@ -175,7 +211,8 @@ comparable to your amplifier's clock. Alignment instead goes through LSL:
    `FIXATION_ONSET` / `SEQUENCE_CUE_ONSET` / `PREPARATION_ONSET` / `GO_ONSET`
    / `KEY_F..K` / `TYPING_COMPLETE` / `REST_ONSET` (plus a
    `TRIAL_START/{index}/{condition}/{sequence}` marker at the top of each
-   trial) at the exact moment each phase's stimulus is flipped to screen.
+   trial, and `BREAK_ONSET` / `BREAK_END` around each rest break) at the
+   exact moment each phase's stimulus is flipped to screen.
 2. Record that marker stream **and** your EEG amplifier's LSL stream into the
    same session with LabRecorder (or your amp's LSL recorder) → one XDF file.
 3. Because both streams are timestamped from LSL's synchronized clock (not
