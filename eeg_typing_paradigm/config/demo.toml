@@ -1,0 +1,60 @@
+# EEG typing-sequence pilot -- demo/pilot profile.
+# Every number an experimenter is likely to want to change lives here; the
+# task script itself should never need editing to adjust timing or trial counts.
+
+[experiment]
+name = "eeg_typing_demo"
+participant = "pilot01"
+session = "001"
+random_seed = 42
+
+[timing]
+fixation_duration_sec = 0.5
+sequence_cue_duration_sec = 1.5
+preparation_duration_sec = 2.0
+go_duration_sec = 0.2
+rest_duration_sec = 2.0
+# Safety net only -- there is no imposed inter-key interval; a trial ends the
+# instant all 4 expected keys are pressed, however fast or slow that is. This
+# timeout only fires if the participant stops typing altogether.
+typing_timeout_sec = 8.0
+
+[trials]
+# Small counts for a quick, testable demo (docx asked for 5-10 / condition).
+trials_per_condition = 8
+practice_trials_per_condition = 1
+sequence_length = 4
+# CONDITION 2 (one_per_finger) draws from this curated, hand-picked pool of
+# orderings (repeats once trials_per_condition > 5). CONDITION 3 (randomized)
+# instead draws from the full 24-permutation space of F/D/J/K -- see
+# src/typing_task/trials.py for why the two are generated differently even
+# though both use "all four characters, no repeats" sequences.
+one_per_finger_pool = ["FDJK", "KJDF", "FJDK", "DFKJ", "JKFD"]
+shuffle = true
+
+[keys]
+characters = ["F", "D", "J", "K"]
+finger_map = { F = "left index", D = "left middle", J = "right index", K = "right middle" }
+quit_key = "escape"
+
+[display]
+fullscreen = false
+screen_size = [1280, 800]
+monitor_name = "testMonitor"
+# Dark neutral gray rather than pure black: still EEG-friendly/high-contrast
+# against white text, but easier on pupil dilation over a long session.
+background_color = [-0.8, -0.8, -0.8]
+text_color = [1.0, 1.0, 1.0]
+units = "height"
+screen = 0
+
+[eeg]
+# No EEG hardware needed to run the demo: markers are simply dropped
+# (NullMarkerSender) when this is false or pylsl is not installed.
+enabled = false
+lsl_stream_name = "TypingTaskMarkers"
+source_id = "eeg_typing_task"
+
+[output]
+data_dir = "data"
+log_dir = "logs"

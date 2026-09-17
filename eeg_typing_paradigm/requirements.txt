@@ -1,0 +1,5 @@
+psychopy==2026.1.3
+tomli>=2.0.1; python_version < "3.11"
+# EEG event markers over Lab Streaming Layer. Optional: the task degrades to
+# NullMarkerSender (no markers) if this is absent, or if [eeg].enabled=false.
+pylsl>=1.16
